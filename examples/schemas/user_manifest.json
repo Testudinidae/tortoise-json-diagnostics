@@ -1,0 +1,28 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "user_manifest.json",
+    "type": "object",
+    "required": ["user_id", "profile"],
+    "properties": {
+        "user_id": {
+            "type": "string",
+            "pattern": "^USR-\\d{4}$"
+        },
+        "profile": {
+            "type": "object",
+            "required": ["nickname", "age"],
+            "properties": {
+                "nickname": {
+                    "type": "string",
+                    "minLength": 2
+                },
+                "age": {
+                    "type": "integer",
+                    "minimum": 0
+                }
+            },
+            "additionalProperties": false
+        }
+    },
+    "additionalProperties": false
+}

@@ -1,0 +1,9 @@
+{
+    "user_id": "INVALID_ID",
+    "profile": {
+        "nickname": "A",
+        "age": -5,
+        "unknown_field": true
+    },
+    "extra_root_field": 123
+}
