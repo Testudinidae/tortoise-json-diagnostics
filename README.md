@@ -49,13 +49,13 @@ Instead of unreadable raw validation objects, `tortoise-json-diagnostics` format
 Using `uv` (recommended):
 
 ```bash
-uv add json-diagnostics
+uv add tortoise-json-diagnostics
 ```
 
 Using `pip`:
 
 ```bash
-pip install json-diagnostics
+pip install tortoise-json-diagnostics
 ```
 
 ---
