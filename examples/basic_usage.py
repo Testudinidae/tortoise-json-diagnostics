@@ -4,6 +4,7 @@ from pathlib import Path
 from jsonschema import Draft202012Validator
 
 from tortoise_json_diagnostics import DiagnosticJsonParser
+from tortoise_json_diagnostics.handlers import AdditionalPropertiesHandler
 
 
 def main() -> None:
@@ -15,7 +16,7 @@ def main() -> None:
 
     validator = Draft202012Validator(manifest_schema, resolver=None)
 
-    parser = DiagnosticJsonParser(validator)
+    parser = DiagnosticJsonParser(validator, handlers=[AdditionalPropertiesHandler()])
 
     data = parser.parse_file(bad_data_path)
 

@@ -4,30 +4,30 @@ from collections import defaultdict
 from collections.abc import Sequence
 
 from json_source_map import calculate
-from json_source_map.types import TSourceMap, Entry
+from json_source_map.types import TSourceMap
 from jsonschema import Validator, ValidationError
 
 from .errors import JsonValidationError, TJsonValidationError
-from .formatters import TextSpan, LocationFormatter, get_global_location_formatter
-from .handlers import IErrorHandler, DefaultValidationHandler, get_json_pointer
-from .types import Json, StrPath
+from .formatters import TextSpan, ErrorGroupFormatter, get_global_nested_group_formatter, LocationFormatter, get_global_location_formatter
+from .handlers import IErrorHandler, DefaultValidationHandler
+from .typing import Json, StrPath
 
 
-def _get_error_position(source_map: TSourceMap, error: JsonValidationError) -> tuple[int, int]:
-    first_validation_error: ValidationError | None = error.validation_errors[0] if error.validation_errors else None
-    if not first_validation_error or not first_validation_error.absolute_path:
-        return (0, 0)
-    json_pointer: str = get_json_pointer(first_validation_error.absolute_path)
-    entry: Entry | None = source_map.get(json_pointer)
-    if entry and entry.value_start:
-        return (entry.value_start.line, entry.value_start.column)
-    return (0, 0)
+def _get_node_position(node: TJsonValidationError) -> int:
+    if isinstance(node, JsonValidationError):
+        return node.target.location.position if node.target and node.target.location else 0
+
+    else:
+        if node.exceptions:
+            return _get_node_position(node.exceptions[0])
+        return 0
 
 
 def _group_exceptions_by_json_path(
     errors: Sequence[JsonValidationError],
     /,
     source_map: TSourceMap,
+    json_text: str,
     file_path: StrPath | None,
     *,
     depth: int = 0,
@@ -35,19 +35,15 @@ def _group_exceptions_by_json_path(
     if not errors:
         return None
 
-    sorted_errors: list[JsonValidationError] = sorted(errors, key=lambda error: _get_error_position(source_map, error))
-
+    sorted_errors: list[JsonValidationError] = sorted(errors, key=lambda error: error.target.location.position if error.target.location else 0)
     leaf_errors: list[JsonValidationError] = []
     grouped_errors: dict[str | int, list[JsonValidationError]] = defaultdict(list)
 
     for error in sorted_errors:
-        first_validation_error: ValidationError | None = error.validation_errors[0] if error.validation_errors else None
-        path: list[str | int] = list(first_validation_error.absolute_path) if first_validation_error else []
-
-        if len(path) == depth:
+        if len(error.target.group_path) == depth:
             leaf_errors.append(error)
         else:
-            current_key: str | int = path[depth]
+            current_key: str | int = error.target.group_path[depth]
             grouped_errors[current_key].append(error)
 
     child_nodes: list[TJsonValidationError] = []
@@ -57,6 +53,7 @@ def _group_exceptions_by_json_path(
         nested_result: TJsonValidationError | None = _group_exceptions_by_json_path(
             sub_errors,
             source_map,
+            json_text,
             file_path,
             depth=depth + 1,
         )
@@ -66,12 +63,14 @@ def _group_exceptions_by_json_path(
     if not child_nodes:
         return None
 
+    child_nodes.sort(key=_get_node_position)
+
     if depth == 0:
         location_formatter: LocationFormatter = get_global_location_formatter()
         location_info: str = location_formatter.format(file_path, None)
 
         label: str = "JSON Validation Error"
-        title: str = f"{label}\n{location_info}"
+        message: str = f"{label}\n{location_info}"
     else:
         parent_error: JsonValidationError | None = errors[0] if errors else None
         first_validation_error: ValidationError | None = parent_error.validation_errors[0] if parent_error and parent_error.validation_errors else None
@@ -80,19 +79,12 @@ def _group_exceptions_by_json_path(
             if first_validation_error and len(first_validation_error.absolute_path) >= depth
             else []
         )
-        last_key: str | int = current_prefix_path[-1] if current_prefix_path else ""
+        span: TextSpan | None = TextSpan.from_json_path(current_prefix_path, source_map, is_key=True)
 
-        json_pointer: str = get_json_pointer(current_prefix_path)
-        entry: Entry | None = source_map.get(json_pointer)
-        span: TextSpan | None = TextSpan.from_entry_key(entry) if entry else None
+        formatter: ErrorGroupFormatter = get_global_nested_group_formatter()
+        message: str = formatter.format(current_prefix_path, json_text, file_path, span)
 
-        location_formatter: LocationFormatter = get_global_location_formatter()
-        location_info: str = location_formatter.format(file_path, span)
-
-        label: str = f"Item [{last_key}]" if isinstance(last_key, int) else f"Property {last_key!r}"
-        title: str = f"{label}\n{location_info}"
-
-    return ExceptionGroup(title, child_nodes)
+    return ExceptionGroup(message, child_nodes)
 
 
 class DiagnosticJsonParser:
@@ -136,6 +128,6 @@ class DiagnosticJsonParser:
             sub_errors, remaining_errors = handler.handle(self.validator, remaining_errors, source_map, text, path)
             collected_exceptions.extend(sub_errors)
 
-        root_exception_group = _group_exceptions_by_json_path(collected_exceptions, source_map, path)
+        root_exception_group = _group_exceptions_by_json_path(collected_exceptions, source_map, text, path)
 
         return raw_data, root_exception_group

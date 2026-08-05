@@ -1,26 +1,78 @@
 from collections.abc import Sequence
-from dataclasses import dataclass
 from typing import Any, Protocol
 
-from json_source_map.types import Entry, Location
+from .typing import StrPath
+from .types import TextSpan
 
-from .types import StrPath
+
+class ErrorMessageFormatter(Protocol):
+    def format(
+        self,
+        title: str,
+        json_text: str,
+        file_path: StrPath | None,
+        span: TextSpan | None,
+        /,
+    ) -> str:
+        ...
 
 
-@dataclass(slots=True, frozen=True)
-class TextSpan:
-    start: Location
-    end: Location
+class DefaultMessageFormatter(ErrorMessageFormatter):
+    def format(
+        self,
+        title: str,
+        json_text: str,
+        file_path: StrPath | None,
+        span: TextSpan | None,
+        /,
+    ) -> str:
+        location_formatter: LocationFormatter = get_global_location_formatter()
+        location_info: str = location_formatter.format(file_path, span)
 
-    @classmethod
-    def from_entry_key(cls, entry: Entry, /) -> TextSpan | None:
-        if entry.key_start is not None and entry.key_end is not None:
-            return cls(start=entry.key_start, end=entry.key_end)
-        return None
+        spans_formatter: TextSpansFormatter[Any] = get_global_spans_formatter()
+        code_snippet: str = spans_formatter.format(json_text, [span]) if span else ""
 
-    @classmethod
-    def from_entry_value(cls, entry: Entry, /) -> TextSpan:
-        return cls(start=entry.value_start, end=entry.value_end)
+        parts: list[str] = [title]
+        if location_info:
+            parts.append(location_info)
+        if code_snippet:
+            parts.append(code_snippet)
+
+        return "\n".join(parts)
+
+
+class ErrorGroupFormatter(Protocol):
+    def format(
+        self,
+        json_path: Sequence[str | int],
+        json_text: str,
+        file_path: StrPath | None,
+        span: TextSpan | None,
+        /,
+    ) -> str:
+        ...
+
+
+class DefaultNestedGroupFormatter(ErrorGroupFormatter):
+    def format(
+        self,
+        json_path: Sequence[str | int],
+        json_text: str,
+        file_path: StrPath | None,
+        span: TextSpan | None,
+        /,
+    ) -> str:
+        last_key: str | int = json_path[-1] if json_path else ""
+        title: str = f"Item [{last_key}]" if isinstance(last_key, int) else f"Property {last_key!r}"
+
+        location_formatter: LocationFormatter = get_global_location_formatter()
+        location_info: str = location_formatter.format(file_path, span)
+
+        parts: list[str] = [title]
+        if location_info:
+            parts.append(location_info)
+
+        return "\n".join(parts)
 
 
 class LocationFormatter(Protocol):
@@ -34,8 +86,8 @@ class DefaultLocationFormatter(LocationFormatter):
         if file_path:
             parts.append(f'File "{file_path}"')
         if span:
-            line_number: int = span.start.line + 1
-            column_number: int = span.start.column + 1
+            line_number: int = span.end.line + 1
+            column_number: int = span.end.column + 1
 
             parts.append(f"line {line_number}")
             parts.append(f"column {column_number}")
@@ -92,8 +144,28 @@ class DefaultSpansFormatter(TextSpansFormatter[TextSpan]):
         return "\n".join(output_lines)
 
 
+_global_message_formatter: ErrorMessageFormatter = DefaultMessageFormatter()
+_global_nested_group_formatter: ErrorGroupFormatter = DefaultNestedGroupFormatter()
 _global_location_formatter: LocationFormatter = DefaultLocationFormatter()
 _global_spans_formatter: TextSpansFormatter[Any] = DefaultSpansFormatter()
+
+
+def set_global_message_formatter(formatter: ErrorMessageFormatter, /) -> None:
+    global _global_message_formatter
+    _global_message_formatter = formatter
+
+
+def get_global_message_formatter() -> ErrorMessageFormatter:
+    return _global_message_formatter
+
+
+def set_global_nested_group_formatter(formatter: ErrorGroupFormatter, /) -> None:
+    global _global_nested_group_formatter
+    _global_nested_group_formatter = formatter
+
+
+def get_global_nested_group_formatter() -> ErrorGroupFormatter:
+    return _global_nested_group_formatter
 
 
 def set_global_location_formatter(formatter: LocationFormatter, /) -> None:

@@ -6,15 +6,21 @@ schema = {
     "required": ["name", "age"],
     "properties": {
         "name": {"type": "string"},
-        "age": {"type": "integer", "minimum": 0},
-    },
+        "age": {"type": "integer", "minimum": 0}
+    }
 }
 
 validator = Draft202012Validator(schema)
 
-json_text = '{"name": 123, "age": -5}'
+json_text = """
+{
+    "name": 123,
+    "age": -5
+}
+""".strip()
 
 from tortoise_json_diagnostics import LocationFormatter, set_global_location_formatter
+from tortoise_json_diagnostics import DefaultSpansFormatter, set_global_spans_formatter
 
 class CompactLocationFormatter(LocationFormatter):
     def format(self, file_path, span, /) -> str:
@@ -25,6 +31,7 @@ class CompactLocationFormatter(LocationFormatter):
         return f"{file_path}:{span.end.line + 1}:{span.end.column + 1}"
 
 set_global_location_formatter(CompactLocationFormatter())
+set_global_spans_formatter(DefaultSpansFormatter(lines_before=0, lines_after=0))
 
 parser = DiagnosticJsonParser(validator)
 

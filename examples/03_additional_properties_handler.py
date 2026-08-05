@@ -3,22 +3,25 @@ from tortoise_json_diagnostics import DiagnosticJsonParser
 
 schema = {
     "type": "object",
-    "required": ["name", "age"],
     "properties": {
         "name": {"type": "string"},
         "age": {"type": "integer", "minimum": 0}
-    }
+    },
+    "additionalProperties": False
 }
 
 validator = Draft202012Validator(schema)
 
-parser = DiagnosticJsonParser(validator)
-
 json_text = """
 {
-    "name": 123,
-    "age": -5
+    "nmae": "foo",
+    "age": 5,
+    "unknown_field": false
 }
 """.strip()
+
+from tortoise_json_diagnostics.handlers import AdditionalPropertiesHandler
+
+parser = DiagnosticJsonParser(validator, handlers=[AdditionalPropertiesHandler()])
 
 data = parser.parse_text(json_text, path="input.json")
