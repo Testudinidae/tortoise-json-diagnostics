@@ -32,13 +32,13 @@ def validate_duplicate_ids(root_node: DiagnosticNode, /) -> None:
 
     for item_node in root_node:
         id_node: DiagnosticNode = item_node["id"]
-        item_id: int = id_node.value  # pyright: ignore[reportAssignmentType]
+        item_id: int = id_node.value
         id_to_nodes_map[item_id].append(item_node)
 
     for item_id, item_nodes in id_to_nodes_map.items():
         if len(item_nodes) > 1:
             for item_node in item_nodes:
-                item_node.attach_error(f"Duplicate id found: {item_id}", ["id"])
+                item_node.attach_error(f"Duplicate id found: {item_id}", ["id"])  # type: ignore[reportUnusedCallResult]
 
 validator = Draft202012Validator(schema)
 parser = DiagnosticJsonParser(validator)

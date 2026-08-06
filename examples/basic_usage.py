@@ -18,7 +18,7 @@ def main() -> None:
 
     parser = DiagnosticJsonParser(validator, handlers=[AdditionalPropertiesHandler()])
 
-    data = parser.parse_file(bad_data_path)
+    data = parser.parse_file(bad_data_path)  # type: ignore[reportUnusedVariable]
 
 
 if __name__ == "__main__":

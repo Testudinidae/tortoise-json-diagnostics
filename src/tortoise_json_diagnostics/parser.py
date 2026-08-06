@@ -147,10 +147,10 @@ class DiagnosticJsonParser:
 
 @final
 class DiagnosticNode():
-    def __init__(self, data: Json, /, errors: Sequence[JsonDiagnosticError], source_document: SourceDocument, *, current_path: tuple[str | int, ...] = ()):
+    def __init__(self, data: Json, /, errors: Sequence[JsonDiagnosticError], source_document: SourceDocument, *, current_path: tuple[str | int, ...] = ()) -> None:
         self.errors: list[JsonDiagnosticError] = []
         self.source_document: SourceDocument = source_document
-        self._contents: dict[str, DiagnosticNode] | list[DiagnosticNode] | None | bool | int | float | str
+        self._contents: dict[str, DiagnosticNode] | list[DiagnosticNode] | None | bool | int | float | str | Any
         self._current_path: tuple[str | int, ...] = current_path
 
         current_depth: int = len(current_path)
@@ -183,11 +183,11 @@ class DiagnosticNode():
         return self._current_path
 
     @property
-    def value(self, /) -> Json:
+    def value(self, /) -> Any:
         if isinstance(self._contents, dict):
-            return {key: value.value for key, value in self._contents.items()}
+            return {key: value.value if isinstance(value, DiagnosticNode) else value for key, value in self._contents.items()}  # type: ignore[unknown]
         elif isinstance(self._contents, list):
-            return [value.value for value in self._contents]
+            return [value.value if isinstance(value, DiagnosticNode) else value for value in self._contents]  # type: ignore[unknown]
         else:
             return self._contents
 
@@ -195,14 +195,17 @@ class DiagnosticNode():
     def value(self, value: Any, /) -> None:
         self._contents = value
 
-    def __getitem__(self, index: str | int, /) -> DiagnosticNode:
+    def __getitem__(self, index: Any, /) -> Any:
         return self._contents[index]  # type: ignore
 
-    def __len__(self, /) -> int:
-        if isinstance(self._contents, (dict, list)):
-            return len(self._contents)
+    def __setitem__(self, index: str | int, value: Any, /) -> None:
+        self._contents[index] = value  # type: ignore
 
-        return len(self.value)  # type: ignore
+    def __delitem__(self, index: str | int, /) -> None:
+        del self._contents[index]  # type: ignore
+
+    def __len__(self, /) -> int:
+        return len(self._contents)  # type: ignore
 
     def __iter__(self, /) -> Iterator[Any]:
         return iter(self._contents)  # type: ignore
@@ -214,12 +217,14 @@ class DiagnosticNode():
         accumulated_errors: list[JsonDiagnosticError] = list(self.errors)
 
         if isinstance(self._contents, dict):
-            for child_node in self._contents.values():
-                accumulated_errors.extend(child_node.collect_all_errors())
+            for child_node in self._contents.values():  # type: ignore[unknown]
+                if isinstance(child_node, DiagnosticNode):
+                    accumulated_errors.extend(child_node.collect_all_errors())
 
         elif isinstance(self._contents, list):
-            for child_node in self._contents:
-                accumulated_errors.extend(child_node.collect_all_errors())
+            for child_node in self._contents:  # type: ignore[unknown]
+                if isinstance(child_node, DiagnosticNode):
+                    accumulated_errors.extend(child_node.collect_all_errors())
 
         return tuple(accumulated_errors)
 
