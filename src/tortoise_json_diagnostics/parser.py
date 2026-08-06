@@ -150,7 +150,7 @@ class DiagnosticNode():
     def __init__(self, data: Json, /, errors: Sequence[JsonDiagnosticError], source_document: SourceDocument, *, current_path: tuple[str | int, ...] = ()) -> None:
         self.errors: list[JsonDiagnosticError] = []
         self.source_document: SourceDocument = source_document
-        self._contents: dict[str, DiagnosticNode] | list[DiagnosticNode] | None | bool | int | float | str | Any
+        self._contents: Any
         self._current_path: tuple[str | int, ...] = current_path
 
         current_depth: int = len(current_path)
@@ -196,19 +196,19 @@ class DiagnosticNode():
         self._contents = value
 
     def __getitem__(self, index: Any, /) -> Any:
-        return self._contents[index]  # type: ignore
+        return self._contents[index]
 
     def __setitem__(self, index: str | int, value: Any, /) -> None:
-        self._contents[index] = value  # type: ignore
+        self._contents[index] = value
 
     def __delitem__(self, index: str | int, /) -> None:
-        del self._contents[index]  # type: ignore
+        del self._contents[index]
 
     def __len__(self, /) -> int:
-        return len(self._contents)  # type: ignore
+        return len(self._contents)
 
     def __iter__(self, /) -> Iterator[Any]:
-        return iter(self._contents)  # type: ignore
+        return iter(self._contents)
 
     def __repr__(self, /) -> str:
         return f"{type(self).__name__}(_contents={self._contents}, errors={self.errors})"
@@ -232,8 +232,8 @@ class DiagnosticNode():
         all_errors: tuple[JsonDiagnosticError, ...] = self.collect_all_errors()
         return group_exceptions(all_errors, self.source_document)
 
-    def attach_error(self, title: str, reltive_path: Sequence[str | int] = (), /, target: SpanTarget = SpanTarget.VALUE) -> JsonDiagnosticError:
-        target_path: tuple[str | int, ...] = self._current_path + tuple(reltive_path)
+    def attach_error(self, title: str, relative_path: Sequence[str | int] = (), /, target: SpanTarget = SpanTarget.VALUE) -> JsonDiagnosticError:
+        target_path: tuple[str | int, ...] = self._current_path + tuple(relative_path)
         span: TextSpan | None = self.source_document.get_span(target_path, target=target)
 
         formatter: ErrorMessageFormatter = get_global_message_formatter()

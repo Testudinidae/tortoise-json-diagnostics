@@ -1,6 +1,6 @@
 [project]
 name = "tortoise-json-diagnostics"
-version = "0.3.1"
+version = "0.3.2"
 license = { text = "MIT" }
 description = "A modern Python library for formatting JSON Schema validation errors into ExceptionGroup trees."
 readme = "README.md"
@@ -12,6 +12,11 @@ dependencies = [
     "json-source-map>=1.0.5",
     "jsonschema>=4.26.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/Testudinidae/tortoise-json-diagnostics"
+Repository = "https://github.com/Testudinidae/tortoise-json-diagnostics"
+"Bug Tracker" = "https://github.com/Testudinidae/tortoise-json-diagnostics/issues"
 
 [build-system]
 requires = ["uv_build>=0.12.1,<0.13.0"]
