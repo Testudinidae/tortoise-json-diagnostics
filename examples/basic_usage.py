@@ -9,12 +9,12 @@ from tortoise_json_diagnostics.handlers import AdditionalPropertiesHandler
 
 def main() -> None:
     base_dir = Path(__file__).parent
-    manifest_schema_path = base_dir / "schemas" / "user_manifest.json"
+    schema_path = base_dir / "schemas" / "user_manifest.json"
     bad_data_path = base_dir / "data" / "bad_user.json"
 
-    manifest_schema = json.loads(manifest_schema_path.read_text(encoding="utf-8"))
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
 
-    validator = Draft202012Validator(manifest_schema, resolver=None)
+    validator = Draft202012Validator(schema, resolver=None)
 
     parser = DiagnosticJsonParser(validator, handlers=[AdditionalPropertiesHandler()])
 

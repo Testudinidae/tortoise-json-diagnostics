@@ -1,4 +1,4 @@
-from .errors import JsonValidationError, TJsonValidationError
+from .errors import JsonDiagnosticError, SingleValidationError, TJsonDiagnosticError
 from .formatters import (
     DefaultLocationFormatter,
     DefaultMessageFormatter,
@@ -17,39 +17,42 @@ from .formatters import (
     set_global_nested_group_formatter,
     set_global_spans_formatter,
 )
-from .handlers import DefaultValidationHandler, IErrorHandler
-from .parser import DiagnosticJsonParser
-from .types import ErrorTarget, TextSpan
+from .handlers import DefaultValidationHandler, IValidationHandler
+from .parser import DiagnosticJsonParser, DiagnosticNode
+from .types import SourceDocument, TextSpan, Location, SpanTarget
 from .typing import Json, StrPath
 from ._utils import get_json_pointer
 
 
 __all__: list[str] = [
     "DiagnosticJsonParser",
-    "JsonValidationError",
-    "TJsonValidationError",
-    "IErrorHandler",
-    "DefaultNestedGroupFormatter",
-    "ErrorGroupFormatter",
-    "DefaultMessageFormatter",
-    "ErrorMessageFormatter",
+    "DiagnosticNode",
     "DefaultValidationHandler",
-    "LocationFormatter",
+    "IValidationHandler",
+    "DefaultMessageFormatter",
+    "DefaultNestedGroupFormatter",
     "DefaultLocationFormatter",
-    "TextSpansFormatter",
     "DefaultSpansFormatter",
-    "TextSpan",
-    "get_global_location_formatter",
+    "ErrorMessageFormatter",
+    "ErrorGroupFormatter",
+    "LocationFormatter",
+    "TextSpansFormatter",
     "get_global_message_formatter",
     "get_global_nested_group_formatter",
+    "get_global_location_formatter",
     "get_global_spans_formatter",
-    "set_global_location_formatter",
     "set_global_message_formatter",
     "set_global_nested_group_formatter",
+    "set_global_location_formatter",
     "set_global_spans_formatter",
+    "get_json_pointer",
+    "SourceDocument",
+    "TextSpan",
+    "Location",
+    "SpanTarget",
     "Json",
     "StrPath",
-    "ErrorTarget",
-    "TextSpan",
-    "get_json_pointer"
+    "JsonDiagnosticError",
+    "SingleValidationError",
+    "TJsonDiagnosticError",
 ]

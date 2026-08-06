@@ -4,12 +4,22 @@
 
 A modern, highly customizable Python library for formatting JSON Schema validation errors into clear, human-readable code snippets and nested `ExceptionGroup` trees.
 
+## Overview & Motivation
+
+JSON Schema validation tools provide powerful, localized data checks. They operate on the assumption that errors are simple, self-contained, and isolated—a design property that keeps schema definitions clean and manageable without burdening them with complex, multi-field, or contextual domain logic.
+
+However, in real-world applications, downstream validation failures or business logic errors almost always point back to issues within the original JSON source file.
+
+`tortoise-json-diagnostics` bridges this gap:
+* It formats raw `jsonschema` errors into human-readable diagnostics with source code snippets and position tracking.
+* It parses JSON into a mutable `DiagnosticNode` AST tree, allowing developers to dynamically inspect code locations, attach or prune custom domain errors on specific nodes, and export the aggregated result as an `ExceptionGroup`.
 
 ## Key Features
 
-* 🌳 **Nested ExceptionGroup Trees**: Automatically groups flat `jsonschema` validation errors into structured hierarchy matching your JSON schema layout.
-* 🧩 **Extensible Handler Pipeline**: Allows custom error handlers to intercept, transform, and prune specific validation errors before fallback processing.
-* ⚙️ **Global Formatter Registry**: Easily switch or implement custom location and code snippet formatters (e.g., plain text, rich, ...).
+* 🌳 **Nested ExceptionGroup Trees**: Groups flat `jsonschema` validation errors into structured hierarchies matching your JSON layout.
+* 🧩 **DiagnosticNode AST Parsing**: Parses JSON into a fully mutable semantic AST tree with values and errors.
+* 🛠️ **Dynamic Error Attachment**: Attach custom domain errors directly to AST nodes and export them via `to_exception_group()`.
+* 🧼 **Clean Value Access**: Node `.value` property returns raw Python structures clean of error metadata while remaining fully mutable.
 * 🐍 **Modern Python Native**: Built for modern Python with strict typing
 
 
@@ -86,7 +96,6 @@ json_text = """
 """.strip()
 
 data = parser.parse_text(json_text, path="input.json")
-
 ```
 
 ## Advanced Usage
@@ -100,7 +109,7 @@ from tortoise_json_diagnostics import LocationFormatter, set_global_location_for
 from tortoise_json_diagnostics import DefaultSpansFormatter, set_global_spans_formatter
 
 class CompactLocationFormatter(LocationFormatter):
-    def format(self, file_path, span, /) -> str:
+    def format(self, file_path: StrPath | None, span: TextSpan | None, /) -> str:
         if not file_path:
             return ""
         if not span:
@@ -144,6 +153,7 @@ The package includes built-in handlers for specific JSON Schema validation cases
 ```python
 from jsonschema import Draft202012Validator
 from tortoise_json_diagnostics import DiagnosticJsonParser
+from tortoise_json_diagnostics.handlers import AdditionalPropertiesHandler
 
 schema = {
     "type": "object",
@@ -164,12 +174,9 @@ json_text = """
 }
 """.strip()
 
-from tortoise_json_diagnostics.handlers import AdditionalPropertiesHandler
-
 parser = DiagnosticJsonParser(validator, handlers=[AdditionalPropertiesHandler()])
 
 data = parser.parse_text(json_text, path="input.json")
-
 ```
 
 ```text
@@ -200,23 +207,23 @@ data = parser.parse_text(json_text, path="input.json")
 You can intercept specific `ValidationError`s before they hit the default handler by implementing `IErrorHandler`:
 
 ```python
-from tortoise_json_diagnostics import IErrorHandler, JsonValidationError, TextSpan, ErrorMessageFormatter, get_global_message_formatter, ErrorTarget
+from tortoise_json_diagnostics import IValidationHandler, SingleValidationError, get_global_message_formatter
 
-class CustomTypeMismatchHandler(IErrorHandler):
-    def handle(self, validator, validation_errors, source_map, json_text, file_path, /):
-        handled: list[JsonValidationError] = []
-        unhandled = []
+class CustomTypeMismatchHandler(IValidationHandler):
+    def handle(self, validator: Validator, validation_errors: Sequence[ValidationError], /, source_document: SourceDocument) -> tuple[Sequence[JsonDiagnosticError], Sequence[ValidationError]]:
+        handled: list[JsonDiagnosticError] = []
+        unhandled: list[ValidationError] = []
 
         for error in validation_errors:
             if error.validator == "type":
-                json_path: tuple[str | int, ...] = tuple(error.absolute_path)
-                span: TextSpan | None = TextSpan.from_json_path(json_path, source_map)
+                json_path = tuple(error.absolute_path)
+                span = source_document.get_span(json_path)
+                location = span.start if span else None
 
-                formatter: ErrorMessageFormatter = get_global_message_formatter()
-                message: str = formatter.format(f"[Type Mismatch] {error.message}", json_text, file_path, span)
-                target = ErrorTarget(json_path, span.start if span is not None else None)
+                formatter = get_global_message_formatter()
+                message = formatter.format(f"[Type Mismatch] {error.message}", source_document, span)
 
-                error = JsonValidationError(message, validator, [error], target)
+                error = SingleValidationError(message, json_path, location, validator, error)
 
                 handled.append(error)
             else:
@@ -255,6 +262,98 @@ parser = DiagnosticJsonParser(validator, handlers=[CustomTypeMismatchHandler()])
       +------------------------------------
 ```
 
+---
+
+### AST Node Parsing & Custom Error Attachment
+
+Parse raw JSON into a `DiagnosticNode` tree to perform contextual domain validation, attach custom errors directly to target nodes, and export everything via `ExceptionGroup`:
+
+```python
+from collections import defaultdict
+from jsonschema import Draft202012Validator
+from tortoise_json_diagnostics import DiagnosticJsonParser, DiagnosticNode
+
+schema = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "required": ["id", "name"],
+        "properties": {
+            "id": {"type": "integer", "minimum": 0},
+            "name": {"type": "string"},
+        }
+    }
+}
+
+json_text = """
+[
+    {
+        "id": 1,
+        "name": "foo"
+    },
+    {
+        "id": 1,
+        "name": "bar"
+    }
+]
+""".strip()
+
+def validate_duplicate_ids(root_node: DiagnosticNode, /) -> None:
+    id_to_nodes_map: defaultdict[int, list[DiagnosticNode]] = defaultdict(list)
+
+    for item_node in root_node:
+        id_node: DiagnosticNode = item_node["id"]
+        item_id: int = id_node.value
+        id_to_nodes_map[item_id].append(item_node)
+
+    for item_id, item_nodes in id_to_nodes_map.items():
+        if len(item_nodes) > 1:
+            for item_node in item_nodes:
+                item_node.attach_error(f"Duplicate id found: {item_id}", ["id"])
+
+validator = Draft202012Validator(schema)
+parser = DiagnosticJsonParser(validator)
+
+node: DiagnosticNode = parser.parse_to_node_text(json_text, "input.json")
+
+validate_duplicate_ids(node)
+
+value = node.value
+exception_group = node.to_exception_group()
+
+if exception_group:
+    raise exception_group
+```
+
+When raised, `to_exception_group()` produces a structured output pointing directly to the exact file locations of the duplicate entries:
+```text
+  | ExceptionGroup: JSON Validation Error
+  | File "input.json" (2 sub-exceptions)
+  +-+---------------- 1 ----------------
+    | ExceptionGroup: Item [0]
+    | File "input.json", line 5, column 6 (1 sub-exception)
+    +-+---------------- 1 ----------------
+      | tortoise_json_diagnostics.errors.JsonDiagnosticError: Duplicate id found: 1
+      | File "input.json", line 3, column 16
+      |    1 | [
+      |    2 |     {
+      |    3 |         "id": 1,
+      |                      ^
+      |    4 |         "name": "foo"
+      +------------------------------------
+    +---------------- 2 ----------------
+    | ExceptionGroup: Item [1]
+    | File "input.json", line 9, column 6 (1 sub-exception)
+    +-+---------------- 1 ----------------
+      | tortoise_json_diagnostics.errors.JsonDiagnosticError: Duplicate id found: 1
+      | File "input.json", line 7, column 16
+      |    5 |     },
+      |    6 |     {
+      |    7 |         "id": 1,
+      |                      ^
+      |    8 |         "name": "bar"
+      +------------------------------------
+```
 
 ## License
 

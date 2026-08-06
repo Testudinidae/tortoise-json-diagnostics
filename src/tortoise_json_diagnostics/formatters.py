@@ -2,17 +2,15 @@ from collections.abc import Sequence
 from typing import Any, Protocol
 
 from .typing import StrPath
-from .types import TextSpan
+from .types import SourceDocument, SpanTarget, TextSpan
 
 
 class ErrorMessageFormatter(Protocol):
     def format(
         self,
         title: str,
-        json_text: str,
-        file_path: StrPath | None,
+        source_document: SourceDocument,
         span: TextSpan | None,
-        /,
     ) -> str:
         ...
 
@@ -21,16 +19,14 @@ class DefaultMessageFormatter(ErrorMessageFormatter):
     def format(
         self,
         title: str,
-        json_text: str,
-        file_path: StrPath | None,
+        source_document: SourceDocument,
         span: TextSpan | None,
-        /,
     ) -> str:
         location_formatter: LocationFormatter = get_global_location_formatter()
-        location_info: str = location_formatter.format(file_path, span)
+        location_info: str = location_formatter.format(source_document.file_path, span)
 
         spans_formatter: TextSpansFormatter[Any] = get_global_spans_formatter()
-        code_snippet: str = spans_formatter.format(json_text, [span]) if span else ""
+        code_snippet: str = spans_formatter.format(source_document.text, [span]) if span else ""
 
         parts: list[str] = [title]
         if location_info:
@@ -44,10 +40,8 @@ class DefaultMessageFormatter(ErrorMessageFormatter):
 class ErrorGroupFormatter(Protocol):
     def format(
         self,
+        source_document: SourceDocument,
         json_path: Sequence[str | int],
-        json_text: str,
-        file_path: StrPath | None,
-        span: TextSpan | None,
         /,
     ) -> str:
         ...
@@ -56,17 +50,20 @@ class ErrorGroupFormatter(Protocol):
 class DefaultNestedGroupFormatter(ErrorGroupFormatter):
     def format(
         self,
+        source_document: SourceDocument,
         json_path: Sequence[str | int],
-        json_text: str,
-        file_path: StrPath | None,
-        span: TextSpan | None,
         /,
     ) -> str:
         last_key: str | int = json_path[-1] if json_path else ""
         title: str = f"Item [{last_key}]" if isinstance(last_key, int) else f"Property {last_key!r}"
 
+        if isinstance(last_key, str):
+            span: TextSpan | None = source_document.get_span(json_path, SpanTarget.KEY)
+        else:
+            span: TextSpan | None = source_document.get_span(json_path, SpanTarget.VALUE)
+
         location_formatter: LocationFormatter = get_global_location_formatter()
-        location_info: str = location_formatter.format(file_path, span)
+        location_info: str = location_formatter.format(source_document.file_path, span)
 
         parts: list[str] = [title]
         if location_info:

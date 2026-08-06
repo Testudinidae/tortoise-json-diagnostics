@@ -5,7 +5,7 @@ from pathlib import Path
 from jsonschema import Draft202012Validator
 
 from tortoise_json_diagnostics import DiagnosticJsonParser, TextSpan, StrPath, LocationFormatter, TextSpansFormatter, set_global_location_formatter, set_global_spans_formatter
-
+from tortoise_json_diagnostics.handlers import AdditionalPropertiesHandler
 
 class AnsiLocationFormatter(LocationFormatter):
     _CYAN = "\033[36m"
@@ -123,14 +123,14 @@ def main() -> None:
     set_global_spans_formatter(AnsiSpansFormatter())
 
     base_dir = Path(__file__).parent
-    manifest_schema_path = base_dir / "schemas" / "user_manifest.json"
+    schema_path = base_dir / "schemas" / "user_manifest.json"
     bad_data_path = base_dir / "data" / "bad_user.json"
 
-    manifest_schema = json.loads(manifest_schema_path.read_text(encoding="utf-8"))
+    schema = json.loads(schema_path.read_text(encoding="utf-8"))
 
-    validator = Draft202012Validator(manifest_schema, resolver=None)
+    validator = Draft202012Validator(schema)
 
-    parser = DiagnosticJsonParser(validator)
+    parser = DiagnosticJsonParser(validator, handlers=[AdditionalPropertiesHandler()])
 
     data = parser.parse_file(bad_data_path)
 

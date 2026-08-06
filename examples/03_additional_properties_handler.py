@@ -1,5 +1,6 @@
 from jsonschema import Draft202012Validator
 from tortoise_json_diagnostics import DiagnosticJsonParser
+from tortoise_json_diagnostics.handlers import AdditionalPropertiesHandler
 
 schema = {
     "type": "object",
@@ -19,8 +20,6 @@ json_text = """
     "unknown_field": false
 }
 """.strip()
-
-from tortoise_json_diagnostics.handlers import AdditionalPropertiesHandler
 
 parser = DiagnosticJsonParser(validator, handlers=[AdditionalPropertiesHandler()])
 

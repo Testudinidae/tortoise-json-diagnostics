@@ -1,18 +1,24 @@
-from collections.abc import Sequence
+from dataclasses import dataclass
 
 from jsonschema import Validator, ValidationError
 
-from .types import ErrorTarget
+from .types import Location
 
 
-class JsonValidationError(Exception):
-    def __init__(self, message: str, validator: Validator, validation_errors: Sequence[ValidationError], target: ErrorTarget) -> None:
-        super().__init__(message)
+@dataclass(frozen=True, slots=True)
+class JsonDiagnosticError(Exception):
+    message: str
+    path: tuple[str | int, ...]
+    location: Location | None
 
-        self.message = message
-        self.validator = validator
-        self.validation_errors = validation_errors
-        self.target = target
+    def __post_init__(self) -> None:
+        super().__init__(self.message)
 
 
-type TJsonValidationError = JsonValidationError | ExceptionGroup[TJsonValidationError]
+@dataclass(frozen=True, slots=True)
+class SingleValidationError(JsonDiagnosticError):
+    validator: Validator
+    validation_error: ValidationError
+
+
+type TJsonDiagnosticError = JsonDiagnosticError | ExceptionGroup[TJsonDiagnosticError]

@@ -1,9 +1,9 @@
-from .base import IErrorHandler, DefaultValidationHandler
+from .base import IValidationHandler, DefaultValidationHandler
 from .additional_properties_handler import AdditionalPropertiesHandler
 
 
 __all__ = [
-    "IErrorHandler",
+    "IValidationHandler",
     "DefaultValidationHandler",
     "AdditionalPropertiesHandler",
 ]

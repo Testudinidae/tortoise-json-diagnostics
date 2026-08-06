@@ -1,34 +1,32 @@
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 
-from json_source_map.types import TSourceMap
 from jsonschema import Validator, ValidationError
 
-from ..errors import JsonValidationError
+from ..errors import JsonDiagnosticError, SingleValidationError
 from ..formatters import TextSpan, ErrorMessageFormatter, get_global_message_formatter
-from ..types import ErrorTarget
-from ..typing import StrPath
+from ..types import SourceDocument, Location
 
 
-class IErrorHandler(ABC):
+class IValidationHandler(ABC):
     @abstractmethod
-    def handle(self, validator: Validator, validation_errors: Sequence[ValidationError], source_map: TSourceMap, json_text: str, file_path: StrPath | None, /) -> tuple[Sequence[JsonValidationError], Sequence[ValidationError]]:
+    def handle(self, validator: Validator, validation_errors: Sequence[ValidationError], /, source_document: SourceDocument) -> tuple[Sequence[JsonDiagnosticError], Sequence[ValidationError]]:
         ...
 
 
-class DefaultValidationHandler(IErrorHandler):
-    def handle(self, validator: Validator, validation_errors: Sequence[ValidationError], source_map: TSourceMap, json_text: str, file_path: StrPath | None, /) -> tuple[Sequence[JsonValidationError], Sequence[ValidationError]]:
-        errors: list[JsonValidationError] = []
+class DefaultValidationHandler(IValidationHandler):
+    def handle(self, validator: Validator, validation_errors: Sequence[ValidationError], /, source_document: SourceDocument) -> tuple[Sequence[SingleValidationError], Sequence[ValidationError]]:
+        errors: list[SingleValidationError] = []
 
         for validation_error in validation_errors:
             json_path: tuple[str | int, ...] = tuple(validation_error.absolute_path)
-            span: TextSpan | None = TextSpan.from_json_path(json_path, source_map)
+            span: TextSpan | None = source_document.get_span(json_path)
 
             formatter: ErrorMessageFormatter = get_global_message_formatter()
-            message: str = formatter.format(validation_error.message, json_text, file_path, span)
-            target = ErrorTarget(json_path, span.start if span is not None else None)
+            message: str = formatter.format(validation_error.message, source_document, span)
+            location: Location | None = span.start if span else None
 
-            error = JsonValidationError(message, validator, [validation_error], target)
+            error = SingleValidationError(message, json_path, location, validator, validation_error)
 
             errors.append(error)
 

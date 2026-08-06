@@ -19,23 +19,26 @@ json_text = """
 }
 """.strip()
 
-from tortoise_json_diagnostics import IErrorHandler, JsonValidationError, TextSpan, ErrorMessageFormatter, get_global_message_formatter, ErrorTarget
+from collections.abc import Sequence
+from jsonschema import Validator, ValidationError
+from tortoise_json_diagnostics import JsonDiagnosticError, SourceDocument
+from tortoise_json_diagnostics import IValidationHandler, SingleValidationError, get_global_message_formatter
 
-class CustomTypeMismatchHandler(IErrorHandler):
-    def handle(self, validator, validation_errors, source_map, json_text, file_path, /):
-        handled: list[JsonValidationError] = []
-        unhandled = []
+class CustomTypeMismatchHandler(IValidationHandler):
+    def handle(self, validator: Validator, validation_errors: Sequence[ValidationError], /, source_document: SourceDocument) -> tuple[Sequence[JsonDiagnosticError], Sequence[ValidationError]]:
+        handled: list[JsonDiagnosticError] = []
+        unhandled: list[ValidationError] = []
 
         for error in validation_errors:
             if error.validator == "type":
-                json_path: tuple[str | int, ...] = tuple(error.absolute_path)
-                span: TextSpan | None = TextSpan.from_json_path(json_path, source_map)
+                json_path = tuple(error.absolute_path)
+                span = source_document.get_span(json_path)
+                location = span.start if span else None
 
-                formatter: ErrorMessageFormatter = get_global_message_formatter()
-                message: str = formatter.format(f"[Type Mismatch] {error.message}", json_text, file_path, span)
-                target = ErrorTarget(json_path, span.start if span is not None else None)
+                formatter = get_global_message_formatter()
+                message = formatter.format(f"[Type Mismatch] {error.message}", source_document, span)
 
-                error = JsonValidationError(message, validator, [error], target)
+                error = SingleValidationError(message, json_path, location, validator, error)
 
                 handled.append(error)
             else:

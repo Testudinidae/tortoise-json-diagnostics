@@ -1,16 +1,16 @@
 from collections.abc import Sequence
+from dataclasses import dataclass
 import difflib
 from typing import cast
 
-from json_source_map.types import TSourceMap
 from jsonschema import Validator, ValidationError
 from jsonschema._utils import find_additional_properties
 
-from .base import IErrorHandler
+from .base import IValidationHandler
 from ..formatters import TextSpan, ErrorMessageFormatter, get_global_message_formatter
-from ..errors import JsonValidationError
-from ..types import ErrorTarget
-from ..typing import Json, StrPath
+from ..errors import SingleValidationError
+from ..types import SourceDocument, Location, SpanTarget
+from ..typing import Json
 
 
 def find_suggestion(invalid_key: str, allowed_keys: set[str], cutoff: float = 0.6) -> str | None:
@@ -18,15 +18,14 @@ def find_suggestion(invalid_key: str, allowed_keys: set[str], cutoff: float = 0.
     return suggestions[0] if suggestions else None
 
 
-class AdditionalPropertyError(JsonValidationError):
-    def __init__(self, message: str, validator: Validator, validation_errors: Sequence[ValidationError], target: ErrorTarget, extra: str) -> None:
-        super().__init__(message, validator, validation_errors, target)
-        self.extra = extra
+@dataclass(frozen=True, slots=True)
+class AdditionalPropertyError(SingleValidationError):
+    extra: str
 
 
-class AdditionalPropertiesHandler(IErrorHandler):
-    def handle(self, validator: Validator, validation_errors: Sequence[ValidationError], source_map: TSourceMap, json_text: str, file_path: StrPath | None, /) -> tuple[Sequence[JsonValidationError], Sequence[ValidationError]]:
-        errors: list[JsonValidationError] = []
+class AdditionalPropertiesHandler(IValidationHandler):
+    def handle(self, validator: Validator, validation_errors: Sequence[ValidationError], /, source_document: SourceDocument) -> tuple[Sequence[SingleValidationError], Sequence[ValidationError]]:
+        errors: list[SingleValidationError] = []
 
         unhandle_errors: list[ValidationError] = []
 
@@ -39,10 +38,9 @@ class AdditionalPropertiesHandler(IErrorHandler):
             schema = cast(dict[str, list[str]], validation_error.schema)
 
             extras: set[str] = set(find_additional_properties(instance, schema))
-
             for extra in extras:
                 json_path: tuple[str | int, ...] = (*validation_error.absolute_path, extra)
-                span: TextSpan | None = TextSpan.from_json_path(json_path, source_map, is_key=True)
+                span: TextSpan | None = source_document.get_span(json_path, target=SpanTarget.KEY)
 
                 if "patternProperties" in schema:
                     patterns = ", ".join(repr(each) for each in sorted(schema["patternProperties"]))
@@ -57,10 +55,11 @@ class AdditionalPropertiesHandler(IErrorHandler):
                     title = f"{title}. Did you mean: {suggestion!r}?"
 
                 formatter: ErrorMessageFormatter = get_global_message_formatter()
-                message: str = formatter.format(title, json_text, file_path, span)
+                message: str = formatter.format(title, source_document, span)
 
-                target = ErrorTarget(tuple(validation_error.absolute_path), span.start if span else None)
-                error = AdditionalPropertyError(message, validator, [validation_error], target, extra)
+                location: Location | None = span.start if span else None
+
+                error = AdditionalPropertyError(message, tuple(validation_error.absolute_path), location, validator, validation_error, extra)
 
                 errors.append(error)
 

@@ -19,11 +19,12 @@ json_text = """
 }
 """.strip()
 
+from tortoise_json_diagnostics import StrPath, TextSpan
 from tortoise_json_diagnostics import LocationFormatter, set_global_location_formatter
 from tortoise_json_diagnostics import DefaultSpansFormatter, set_global_spans_formatter
 
 class CompactLocationFormatter(LocationFormatter):
-    def format(self, file_path, span, /) -> str:
+    def format(self, file_path: StrPath | None, span: TextSpan | None, /) -> str:
         if not file_path:
             return ""
         if not span:
