@@ -1,6 +1,6 @@
 from collections import defaultdict
 from jsonschema import Draft202012Validator
-from tortoise_json_diagnostics import DiagnosticJsonParser, DiagnosticNode
+from tortoise_json_diagnostics import DiagnosticJsonParser, DiagnosticNode, DiagnosticArrayNode, DiagnosticObjectNode
 
 schema = {
     "type": "array",
@@ -27,23 +27,26 @@ json_text = """
 ]
 """.strip()
 
-def validate_duplicate_ids(root_node: DiagnosticNode, /) -> None:
-    id_to_nodes_map: defaultdict[int, list[DiagnosticNode]] = defaultdict(list)
 
-    for item_node in root_node:
-        id_node: DiagnosticNode = item_node["id"]
+def validate_duplicate_ids(root_node: DiagnosticArrayNode, /) -> None:
+    id_to_nodes_map: defaultdict[int, list[DiagnosticObjectNode]] = defaultdict(list)
+
+    item_node: DiagnosticObjectNode
+    for item_node in root_node:  # type: ignore
+        id_node: DiagnosticNode = item_node["id"]  # type: ignore
         item_id: int = id_node.value
         id_to_nodes_map[item_id].append(item_node)
 
     for item_id, item_nodes in id_to_nodes_map.items():
         if len(item_nodes) > 1:
             for item_node in item_nodes:
-                item_node.attach_error(f"Duplicate id found: {item_id}", ["id"])  # type: ignore[reportUnusedCallResult]
+                item_node.attach_error(f"Duplicate id found: {item_id}", ["id"])
+
 
 validator = Draft202012Validator(schema)
 parser = DiagnosticJsonParser(validator)
 
-node: DiagnosticNode = parser.parse_to_node_text(json_text, "input.json")
+node: DiagnosticArrayNode = parser.parse_to_node_text(json_text, "input.json")  # type: ignore
 
 validate_duplicate_ids(node)
 

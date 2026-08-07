@@ -18,7 +18,7 @@ from .formatters import (
     set_global_spans_formatter,
 )
 from .handlers import DefaultValidationHandler, IValidationHandler
-from .parser import DiagnosticJsonParser, DiagnosticNode
+from .parser import DiagnosticJsonParser, DiagnosticNodeBase, DiagnosticNode, DiagnosticArrayNode, DiagnosticObjectNode
 from .types import SourceDocument, TextSpan, Location, SpanTarget
 from .typing import Json, StrPath
 from ._utils import get_json_pointer
@@ -26,7 +26,10 @@ from ._utils import get_json_pointer
 
 __all__: list[str] = [
     "DiagnosticJsonParser",
+    "DiagnosticNodeBase",
     "DiagnosticNode",
+    "DiagnosticArrayNode",
+    "DiagnosticObjectNode",
     "DefaultValidationHandler",
     "IValidationHandler",
     "DefaultMessageFormatter",

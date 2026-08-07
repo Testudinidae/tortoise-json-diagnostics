@@ -1,8 +1,9 @@
+from abc import ABC, abstractmethod
+from collections import defaultdict, UserList, UserDict
+from collections.abc import Sequence
 import json
 from pathlib import Path
-from collections import defaultdict
-from collections.abc import Sequence, Iterator
-from typing import Any, final
+from typing import Any
 
 from jsonschema import Validator, ValidationError
 
@@ -112,11 +113,11 @@ class DiagnosticJsonParser:
 
         return raw_data, exception_group
 
-    def parse_to_node_file(self, path: StrPath, /, encoding: str | None = None) -> DiagnosticNode:
+    def parse_to_node_file(self, path: StrPath, /, encoding: str | None = None) -> DiagnosticNodeBase[Json]:
         text: str = Path(path).read_text(encoding=encoding)
         return self.parse_to_node_text(text, path)
 
-    def parse_to_node_text(self, text: str, /, path: StrPath | None = None) -> DiagnosticNode:
+    def parse_to_node_text(self, text: str, /, path: StrPath | None = None) -> DiagnosticNodeBase[Json]:
         raw_data: Json = json.loads(text)
         source_document: SourceDocument = SourceDocument.from_text(text, file_path=path)
         remaining_errors: Sequence[ValidationError] = list(self.validator.iter_errors(raw_data))
@@ -125,7 +126,7 @@ class DiagnosticJsonParser:
         if remaining_errors:
             collected_exceptions = self._run_handlers(remaining_errors, source_document)
 
-        return DiagnosticNode(raw_data, collected_exceptions, source_document)
+        return create_diagnostic_node(raw_data, collected_exceptions, source_document)
 
     def _run_handlers(
         self,
@@ -145,103 +146,147 @@ class DiagnosticJsonParser:
         return collected_exceptions
 
 
-@final
-class DiagnosticNode():
-    def __init__(self, data: Json, /, errors: Sequence[JsonDiagnosticError], source_document: SourceDocument, *, current_path: tuple[str | int, ...] = ()) -> None:
-        self.errors: list[JsonDiagnosticError] = []
+def create_diagnostic_node(data: Any, errors: Sequence[JsonDiagnosticError], source_document: SourceDocument, *, path: Sequence[str | int] = ()) -> DiagnosticNodeBase[Any]:
+    if isinstance(data, dict):
+        return DiagnosticObjectNode(data, errors, source_document, path=path)
+    elif isinstance(data, list):
+        return DiagnosticArrayNode(data, errors, source_document, path=path)
+    else:
+        return DiagnosticNode(data, errors, source_document, path=path)
+
+
+class DiagnosticNodeBase[T](ABC):
+    def __init__(self, data: T, /, errors: Sequence[JsonDiagnosticError], source_document: SourceDocument, *, path: Sequence[str | int] = ()) -> None:
+        super().__init__()
+
+        self.errors: list[JsonDiagnosticError] = list(errors)
         self.source_document: SourceDocument = source_document
-        self._contents: Any
-        self._current_path: tuple[str | int, ...] = current_path
-
-        current_depth: int = len(current_path)
-        child_errors_map: defaultdict[str | int, list[JsonDiagnosticError]] = defaultdict(list)
-
-        for error in errors:
-            if len(error.path) == current_depth:
-                self.errors.append(error)
-            elif len(error.path) > current_depth:
-                child_key: str | int = error.path[current_depth]
-                child_errors_map[child_key].append(error)
-
-        if isinstance(data, dict):
-            dictionary_contents: dict[str, DiagnosticNode] = {}
-            for key, value in data.items():
-                child_path: tuple[str | int, ...] = current_path + (key,)
-                dictionary_contents[key] = DiagnosticNode(value, child_errors_map[key], source_document, current_path=child_path)
-            self._contents = dictionary_contents
-        elif isinstance(data, list):
-            list_contents: list[DiagnosticNode] = []
-            for index, value in enumerate(data):
-                child_path: tuple[str | int, ...] = current_path + (index,)
-                list_contents.append(DiagnosticNode(value, child_errors_map[index], source_document, current_path=child_path))
-            self._contents = list_contents
-        else:
-            self._contents = data
+        self._path: tuple[str | int, ...] = tuple(path)
 
     @property
     def path(self) -> tuple[str | int, ...]:
-        return self._current_path
+        return self._path
 
     @property
-    def value(self, /) -> Any:
-        if isinstance(self._contents, dict):
-            return {key: value.value if isinstance(value, DiagnosticNode) else value for key, value in self._contents.items()}  # type: ignore[unknown]
-        elif isinstance(self._contents, list):
-            return [value.value if isinstance(value, DiagnosticNode) else value for value in self._contents]  # type: ignore[unknown]
-        else:
-            return self._contents
-
-    @value.setter
-    def value(self, value: Any, /) -> None:
-        self._contents = value
-
-    def __getitem__(self, index: Any, /) -> Any:
-        return self._contents[index]
-
-    def __setitem__(self, index: str | int, value: Any, /) -> None:
-        self._contents[index] = value
-
-    def __delitem__(self, index: str | int, /) -> None:
-        del self._contents[index]
-
-    def __len__(self, /) -> int:
-        return len(self._contents)
-
-    def __iter__(self, /) -> Iterator[Any]:
-        return iter(self._contents)
+    @abstractmethod
+    def value(self, /) -> T:
+        ...
 
     def __repr__(self, /) -> str:
-        return f"{type(self).__name__}(_contents={self._contents}, errors={self.errors})"
+        return f"{type(self).__name__}(value={self.value}, errors={self.errors})"
 
+    @abstractmethod
     def collect_all_errors(self, /) -> tuple[JsonDiagnosticError, ...]:
-        accumulated_errors: list[JsonDiagnosticError] = list(self.errors)
-
-        if isinstance(self._contents, dict):
-            for child_node in self._contents.values():  # type: ignore[unknown]
-                if isinstance(child_node, DiagnosticNode):
-                    accumulated_errors.extend(child_node.collect_all_errors())
-
-        elif isinstance(self._contents, list):
-            for child_node in self._contents:  # type: ignore[unknown]
-                if isinstance(child_node, DiagnosticNode):
-                    accumulated_errors.extend(child_node.collect_all_errors())
-
-        return tuple(accumulated_errors)
+        ...
 
     def to_exception_group(self, /) -> ExceptionGroup[TJsonDiagnosticError] | None:
-        all_errors: tuple[JsonDiagnosticError, ...] = self.collect_all_errors()
-        return group_exceptions(all_errors, self.source_document)
+        errors: tuple[JsonDiagnosticError, ...] = self.collect_all_errors()
+        return group_exceptions(errors, self.source_document)
 
     def attach_error(self, title: str, relative_path: Sequence[str | int] = (), /, target: SpanTarget = SpanTarget.VALUE) -> JsonDiagnosticError:
-        target_path: tuple[str | int, ...] = self._current_path + tuple(relative_path)
+        target_path: tuple[str | int, ...] = self.path + tuple(relative_path)
         span: TextSpan | None = self.source_document.get_span(target_path, target=target)
 
         formatter: ErrorMessageFormatter = get_global_message_formatter()
         message: str = formatter.format(title, self.source_document, span)
         location: Location | None = span.start if span is not None else None
 
-        diagnostic_error = JsonDiagnosticError(message=message, path=self._current_path, location=location)
+        diagnostic_error = JsonDiagnosticError(message=message, path=self.path, location=location)
 
         self.errors.append(diagnostic_error)
 
         return diagnostic_error
+
+
+class DiagnosticNode[T](DiagnosticNodeBase[T]):
+    def __init__(self, data: T, /, errors: Sequence[JsonDiagnosticError], source_document: SourceDocument, *, path: Sequence[str | int] = ()) -> None:
+        super().__init__(data, errors, source_document, path=path)
+        self._value: T = data
+
+    @property
+    def value(self, /) -> T:
+        return self._value
+
+    @value.setter
+    def value(self, value: T, /) -> None:
+        self._value = value
+
+    def collect_all_errors(self, /) -> tuple[JsonDiagnosticError, ...]:
+        return tuple(self.errors)
+
+
+class DiagnosticArrayNode[T](DiagnosticNodeBase[list[T]], UserList[DiagnosticNodeBase[T]]):
+    def __init__(self, data: list[T], /, errors: Sequence[JsonDiagnosticError], source_document: SourceDocument, *, path: Sequence[str | int] = ()) -> None:
+        current_depth: int = len(path)
+        current_errors: list[JsonDiagnosticError] = []
+        item_errors_groups: list[list[JsonDiagnosticError]] = [[] for _ in range(len(data))]
+
+        for error in errors:
+            if len(error.path) <= current_depth:
+                current_errors.append(error)
+            else:
+                index: str | int = error.path[current_depth]
+                if isinstance(index, int) and index < len(data):
+                    item_errors_groups[index].append(error)
+                else:
+                    current_errors.append(error)
+
+        DiagnosticNodeBase.__init__(self, data, current_errors, source_document, path=path)
+
+        nodes: list[DiagnosticNodeBase[list[T]]] = [
+            create_diagnostic_node(item, item_errors, source_document, path=(*self.path, i))
+            for i, (item, item_errors) in enumerate(zip(data, item_errors_groups))
+        ]
+
+        UserList.__init__(self, nodes)
+
+    @property
+    def value(self, /) -> list[T]:
+        return [item_node.value for item_node in self]
+
+    def collect_all_errors(self, /) -> tuple[JsonDiagnosticError, ...]:
+        errors: list[JsonDiagnosticError] = [*self.errors]
+
+        for item_node in self:
+            errors.extend(item_node.collect_all_errors())
+
+        return tuple(errors)
+
+
+class DiagnosticObjectNode[T](DiagnosticNodeBase[dict[str, T]], UserDict[str, DiagnosticNodeBase[T]]):
+    def __init__(self, data: dict[str, T], /, errors: Sequence[JsonDiagnosticError], source_document: SourceDocument, *, path: Sequence[str | int] = ()) -> None:
+        current_depth: int = len(path)
+        current_errors: list[JsonDiagnosticError] = []
+        child_errors_map: defaultdict[str, list[JsonDiagnosticError]] = defaultdict(list)
+
+        for error in errors:
+            if len(error.path) == current_depth:
+                current_errors.append(error)
+            elif len(error.path) > current_depth:
+                child_key: str | int = error.path[current_depth]
+
+                if isinstance(child_key, str):
+                    child_errors_map[child_key].append(error)
+                else:
+                    current_errors.append(error)
+
+        DiagnosticNodeBase.__init__(self, data, current_errors, source_document, path=path)
+
+        child_nodes: dict[str, DiagnosticNodeBase[T]] = {
+            key: create_diagnostic_node(value, child_errors_map[key], source_document, path=(*self.path, key))
+            for key, value in data.items()
+        }
+
+        UserDict.__init__(self, child_nodes)
+
+    @property
+    def value(self, /) -> dict[str, T]:
+        return {key: value.value for key, value in self.items()}
+
+    def collect_all_errors(self, /) -> tuple[JsonDiagnosticError, ...]:
+        errors: list[JsonDiagnosticError] = list(self.errors)
+
+        for child_node in self.values():
+            errors.extend(child_node.collect_all_errors())
+
+        return tuple(errors)
